@@ -117,3 +117,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the MIT License - see the `LICENSE.md` file for details (if one exists).
 (You might want to add a LICENSE.md file if you intend to distribute this project).
+
+## Screenshots
+
+![screenshot-1](https://github.com/user-attachments/assets/b1dfda03-e1f7-45ec-b0a9-b703ab11ae15)
+![Screenshot-2](https://github.com/user-attachments/assets/73d3177c-7db0-4a8c-93ee-028e4069438e)
