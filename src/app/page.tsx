@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState, type ChangeEvent } from 'react';
+import { useState, type ChangeEvent, useEffect } from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,9 +11,9 @@ import { useToast } from '@/hooks/use-toast';
 import { generateIndianName, type GenerateIndianNameOutput } from '@/ai/flows/generate-indian-name';
 import { generateInstagramCaption, type GenerateInstagramCaptionOutput } from '@/ai/flows/generate-instagram-caption';
 import LoadingDots from '@/components/LoadingDots';
-import { UploadCloud, Copy, Sparkles, Image as ImageIcon, AlertCircle, TextQuote, భారతీయ } from 'lucide-react'; // భారతీయ is a placeholder, replace with a real icon or SVG if available
+import { UploadCloud, Copy, Sparkles, Image as ImageIcon, AlertCircle, TextQuote } from 'lucide-react';
 
-const IndianIcon = () => ( // Simple SVG placeholder for "Indian" aspect
+const IndianIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="10"></circle>
     <circle cx="12" cy="12" r="4"></circle>
@@ -31,8 +32,13 @@ export default function InstaVihangamPage() {
   const [generatedCaption, setGeneratedCaption] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentYear, setCurrentYear] = useState<number | null>(null);
 
   const { toast } = useToast();
+
+  useEffect(() => {
+    setCurrentYear(new Date().getFullYear());
+  }, []);
 
   const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -70,6 +76,9 @@ export default function InstaVihangamPage() {
 
     setIsLoading(true);
     setError(null);
+    // Do not reset generatedName and generatedCaption here if we want to keep partial results.
+    // However, for a fresh generation, it's common to clear previous results.
+    // Let's clear them to avoid confusion if one part fails.
     setGeneratedName(null);
     setGeneratedCaption(null);
 
@@ -77,16 +86,41 @@ export default function InstaVihangamPage() {
       const nameResult: GenerateIndianNameOutput = await generateIndianName({ photoDataUri: imageDataUri });
       setGeneratedName(nameResult.indianName);
 
-      const captionResult: GenerateInstagramCaptionOutput = await generateInstagramCaption({
-        photoDataUri: imageDataUri,
-        creativeIndianName: nameResult.indianName,
-      });
-      setGeneratedCaption(captionResult.instagramCaption);
+      // Only proceed to caption if name generation was successful
+      if (nameResult.indianName) {
+        const captionResult: GenerateInstagramCaptionOutput = await generateInstagramCaption({
+          photoDataUri: imageDataUri,
+          creativeIndianName: nameResult.indianName,
+        });
+        setGeneratedCaption(captionResult.instagramCaption);
+      } else {
+        // Handle case where name generation might return empty without error, though schema implies it's a string.
+        // This is more of a defensive check.
+        throw new Error("Creative name generation did not return a result.");
+      }
     } catch (err) {
       console.error("AI generation failed:", err);
-      setError("Failed to generate content. The AI might be busy or an error occurred. Please try again.");
-      // Keep partially generated content if any
-      if (!generatedName) setGeneratedName(null); // If name failed, ensure it's null
+      let displayError = "Failed to generate content. An unexpected error occurred. Please try again.";
+      if (err instanceof Error) {
+        if (err.message.includes("[503 Service Unavailable]") || err.message.toLowerCase().includes("model is overloaded")) {
+          displayError = "The AI model is currently overloaded. Please try again in a few moments.";
+        } else if (err.message.toLowerCase().includes("api key not valid")) {
+            displayError = "AI configuration error. Please check the API key.";
+        } else {
+            displayError = `Failed to generate content: ${err.message}. Please try again.`;
+        }
+      }
+      setError(displayError);
+      // If name generation succeeded but caption failed, generatedName would still be set.
+      // If name generation failed, generatedName would be null (or its previous state if not cleared).
+      // We've cleared them at the start of handleSubmit, so if an error occurs, they will be null unless partially set.
+      // Let's ensure caption is also null if an error occurred during its generation or before.
+      if (!generatedCaption) setGeneratedCaption(null);
+      // If name generation itself failed, generatedName is already null.
+      // If name succeeded but caption failed, we might want to keep the name.
+      // Current logic: name is set, then caption. If caption fails, name remains.
+      // This seems fine. Let's only explicitly nullify caption if error happens.
+      // The initial nullification handles the rest.
     } finally {
       setIsLoading(false);
     }
@@ -110,8 +144,8 @@ export default function InstaVihangamPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="py-6 px-4 shadow-md bg-card">
+    <div className="min-h-screen flex flex-col bg-background">
+      <header className="py-6 px-4 shadow-md bg-card sticky top-0 z-50">
         <div className="container mx-auto flex items-center justify-center sm:justify-between">
           <h1 className="text-3xl sm:text-4xl font-bold text-accent">InstaVihangam</h1>
         </div>
@@ -128,10 +162,10 @@ export default function InstaVihangamPage() {
             </p>
           </section>
 
-          <Card>
+          <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <UploadCloud className="h-6 w-6 text-primary" />
+              <CardTitle className="flex items-center gap-2 text-xl text-primary">
+                <UploadCloud className="h-6 w-6" />
                 Upload Your Image
               </CardTitle>
             </CardHeader>
@@ -141,17 +175,17 @@ export default function InstaVihangamPage() {
                 type="file"
                 accept="image/*"
                 onChange={handleImageChange}
-                className="file:text-primary file:font-semibold hover:file:bg-primary/10"
+                className="file:text-primary file:font-semibold hover:file:bg-primary/10 border-dashed border-2 p-2 rounded-md cursor-pointer"
                 aria-label="Upload image"
               />
               {imageDataUri && (
-                <div className="mt-4 p-2 border rounded-md overflow-hidden bg-muted/50">
+                <div className="mt-4 p-2 border rounded-md overflow-hidden bg-muted/30 shadow-inner">
                   <Image
                     src={imageDataUri}
                     alt="Uploaded preview"
                     width={500}
                     height={300}
-                    className="rounded-md object-contain max-h-[300px] w-auto mx-auto shadow-sm"
+                    className="rounded-md object-contain max-h-[300px] w-auto mx-auto"
                     data-ai-hint="user uploaded image"
                   />
                 </div>
@@ -160,7 +194,7 @@ export default function InstaVihangamPage() {
           </Card>
           
           {error && (
-            <Alert variant="destructive">
+            <Alert variant="destructive" className="shadow-md">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Error</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
@@ -172,7 +206,7 @@ export default function InstaVihangamPage() {
               onClick={handleSubmit}
               disabled={!imageDataUri || isLoading}
               size="lg"
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto rounded-lg shadow-md hover:shadow-lg transition-shadow"
             >
               {isLoading ? (
                 <LoadingDots />
@@ -185,28 +219,29 @@ export default function InstaVihangamPage() {
             </Button>
           </div>
 
-          {isLoading && !generatedName && !generatedCaption && ( // Show loading dots prominently if no results yet
-            <div className="py-10">
+          {/* More prominent loading state when both are null and loading */}
+          {isLoading && !generatedName && !generatedCaption && (
+            <div className="flex justify-center py-10">
                <LoadingDots />
             </div>
           )}
 
 
-          {(generatedName || generatedCaption) && !isLoading && (
+          {(!isLoading && (generatedName || generatedCaption)) && (
             <div className="space-y-6">
               {generatedName && (
-                <Card>
+                <Card className="shadow-lg">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-xl">
-                      <IndianIcon /> {/* Using custom SVG Icon */}
+                    <CardTitle className="flex items-center gap-2 text-xl text-primary">
+                      <IndianIcon /> 
                        Creative Indian Name
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-lg font-medium text-accent">{generatedName}</p>
+                    <p className="text-lg font-medium text-accent bg-accent/10 p-3 rounded-md border border-accent/30">{generatedName}</p>
                   </CardContent>
                   <CardFooter>
-                    <Button variant="outline" onClick={() => handleCopy(generatedName, "Name")}>
+                    <Button variant="outline" size="sm" onClick={() => handleCopy(generatedName, "Name")}>
                       <Copy className="mr-2 h-4 w-4" /> Copy Name
                     </Button>
                   </CardFooter>
@@ -214,18 +249,18 @@ export default function InstaVihangamPage() {
               )}
 
               {generatedCaption && (
-                <Card>
+                <Card className="shadow-lg">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-xl">
-                      <TextQuote className="h-6 w-6 text-primary" />
+                    <CardTitle className="flex items-center gap-2 text-xl text-primary">
+                      <TextQuote className="h-6 w-6" />
                       Instagram Caption
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="whitespace-pre-line text-foreground/90 bg-muted/30 p-3 rounded-md border">{generatedCaption}</p>
+                    <p className="whitespace-pre-line text-foreground/90 bg-muted/30 p-4 rounded-md border shadow-inner">{generatedCaption}</p>
                   </CardContent>
                   <CardFooter>
-                    <Button variant="outline" onClick={() => handleCopy(generatedCaption, "Caption")}>
+                    <Button variant="outline" size="sm" onClick={() => handleCopy(generatedCaption, "Caption")}>
                       <Copy className="mr-2 h-4 w-4" /> Copy Caption
                     </Button>
                   </CardFooter>
@@ -233,19 +268,19 @@ export default function InstaVihangamPage() {
               )}
               
               {imageDataUri && (generatedName || generatedCaption) && (
-                 <Card>
+                 <Card className="shadow-lg">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-xl">
-                        <ImageIcon className="h-6 w-6 text-primary" />
+                        <CardTitle className="flex items-center gap-2 text-xl text-primary">
+                        <ImageIcon className="h-6 w-6" />
                         Post Preview
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3 p-4 bg-muted/30 rounded-b-md">
-                        <div className="aspect-[4/5] w-full max-w-xs mx-auto bg-secondary rounded-md overflow-hidden shadow-lg">
+                    <CardContent className="space-y-3 p-4 bg-card rounded-b-md">
+                        <div className="aspect-[4/5] w-full max-w-xs mx-auto bg-muted/50 rounded-lg overflow-hidden shadow-xl border">
                          <Image src={imageDataUri} alt="Post preview" width={400} height={500} className="w-full h-full object-cover" data-ai-hint="social media post"/>
                         </div>
-                        <div className="text-center max-w-xs mx-auto">
-                        {generatedName && <p className="font-semibold text-accent mt-2 truncate">{generatedName}</p>}
+                        <div className="text-center max-w-xs mx-auto pt-2">
+                        {generatedName && <p className="font-semibold text-accent text-lg mt-2 truncate" title={generatedName}>{generatedName}</p>}
                         {generatedCaption && <p className="text-sm text-foreground/80 mt-1 line-clamp-3 whitespace-pre-line">{generatedCaption}</p>}
                         </div>
                     </CardContent>
@@ -256,9 +291,10 @@ export default function InstaVihangamPage() {
         </div>
       </main>
 
-      <footer className="text-center py-6 text-sm text-muted-foreground border-t">
-        © {new Date().getFullYear()} InstaVihangam. All rights reserved.
+      <footer className="text-center py-6 text-sm text-muted-foreground border-t mt-12">
+        © {currentYear ?? new Date().getFullYear()} InstaVihangam. All rights reserved.
       </footer>
     </div>
   );
 }
+
